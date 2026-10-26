@@ -384,7 +384,15 @@
         ]
       };
 
-      var NON_BLOCKING = ["canceled", "cancelled", "reschedule", "terminate service", "completed"];
+      /* Status families, matched by keyword on the normalized status so
+         variants can't slip through. A job FILLS its slot — blocking like a
+         Confirmed job — unless its status is clearly in the non-blocking
+         family (canceled / reschedule / terminate service / completed).
+         "Unconfirmed", "Unconfirmed Texted", "Unconfirmed Exterior Route"
+         and "Pending Confirmation" all block; "Completed (Complete)" and
+         other completed-family variants don't. Anything unrecognized blocks. */
+      var FORCE_BLOCKING_KEYWORDS = ["unconfirmed", "pending confirmation", "incomplet"];
+      var NON_BLOCKING_KEYWORDS = ["cancel", "reschedul", "terminat", "complet"];
       var DAY_START = 480, DAY_END = 1020;         // 8:00 AM – 5:00 PM
       var JOSH_BLOCK_START = 480, JOSH_BLOCK_END = 600; // 8:00–10:00 AM
 
@@ -608,8 +616,15 @@
 
       /* ================= Engine ================= */
       function isBlocking(job) {
-        var st = String(job.status || "").trim().toLowerCase();
-        return NON_BLOCKING.indexOf(st) === -1;
+        var st = String(job.status || "").trim().toLowerCase().replace(/\s+/g, " ");
+        var i;
+        for (i = 0; i < FORCE_BLOCKING_KEYWORDS.length; i++) {
+          if (st.indexOf(FORCE_BLOCKING_KEYWORDS[i]) !== -1) return true;
+        }
+        for (i = 0; i < NON_BLOCKING_KEYWORDS.length; i++) {
+          if (st.indexOf(NON_BLOCKING_KEYWORDS[i]) !== -1) return false;
+        }
+        return true; // unrecognized status: treat the slot as filled
       }
       function overlaps(aStart, aEnd, bStart, bEnd) {
         return aStart < bEnd && bStart < aEnd;
@@ -686,6 +701,10 @@
             var start = earliestFreeSlot(u, ds);
             if (start === null) return;
             var ni = nearestInfo(u, ds);
+            /* 5-mile rule: a unit is only offered when its nearest job that
+               day is within 5 miles of the client's town. A unit with no
+               jobs that day (or no measurable distance) doesn't qualify. */
+            if (ni.dist === null || ni.dist > 5) return;
             candidates.push({
               unit: u.name, date: ds, start: start,
               dist: ni.dist, nearTown: ni.town, hasJobs: ni.hasJobs
@@ -784,7 +803,9 @@
         if (!result.top.length) {
           var none = document.createElement("div");
           none.className = "none-msg";
-          none.textContent = "No openings found in the next 14 days for this service. Try a shorter job length or a later start date.";
+          none.textContent = townRaw
+            ? "No openings within 5 miles of " + townRaw + " in the next 14 days. Openings are only offered when a tech is already working within 5 miles of the client that day."
+            : "No openings found in the next 14 days for this service. Enter the client's town — openings are only offered when a tech is already working within 5 miles of the client that day.";
           box.appendChild(none);
         }
         result.top.forEach(function (c, idx) {
