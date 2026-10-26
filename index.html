@@ -4,8 +4,6 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="color-scheme" content="light dark" />
-    <link rel="icon" href="./icon-192.png" />
-    <title>Schedule Checker</title>
     <link rel="manifest" href="./manifest.webmanifest" />
     <link rel="apple-touch-icon" href="./apple-touch-icon.png" />
     <meta name="theme-color" content="#141416" />
@@ -13,6 +11,8 @@
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="Schedule Checker" />
+    <link rel="icon" href="./icon-192.png" />
+    <title>Schedule Checker</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800&family=Archivo+Condensed:wght@600;700&display=swap" rel="stylesheet" />
@@ -218,20 +218,6 @@
         background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
         padding: 18px; font-size: 15.5px; font-weight: 600;
       }
-      .all-open { margin-top: 22px; }
-      .all-open h3 {
-        font-family: "Archivo Condensed", "Archivo", sans-serif;
-        font-size: 19px; text-transform: uppercase; margin: 0 0 8px;
-      }
-      .all-open ul { list-style: none; margin: 0; padding: 0; }
-      .all-open li {
-        background: var(--surface); border: 1px solid var(--line); border-radius: 8px;
-        padding: 11px 13px; margin-bottom: 8px; font-size: 15px;
-        display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap;
-      }
-      .all-open li strong { font-weight: 700; }
-      .all-open li .t { color: var(--ink-2); font-weight: 600; white-space: nowrap; }
-      .all-open li.none { color: var(--ink-3); }
       .footer-note {
         margin-top: 26px; font-size: 13.5px; color: var(--ink-3);
         border-top: 1px solid var(--line); padding-top: 14px;
@@ -294,7 +280,8 @@
           <select id="lengthSelect">
             <option value="30">30 minutes</option>
             <option value="45">45 minutes</option>
-            <option value="60" selected>60 minutes</option>
+            <option value="55" selected>55 minutes</option>
+            <option value="60">60 minutes</option>
             <option value="90">90 minutes</option>
             <option value="120">2 hours</option>
             <option value="180">3 hours</option>
@@ -313,24 +300,17 @@
             </div>
           </div>
 
-          <label for="dateInput">Earliest date</label>
-          <input id="dateInput" type="date" />
-
           <div class="err" id="searchErr"></div>
           <button class="btn" id="searchBtn" type="button">Find top 3 openings</button>
         </div>
 
         <div id="results">
           <div class="results-head">
-            <h2>Top openings</h2>
+            <h2>Next availabilities</h2>
             <span id="resultsFor"></span>
           </div>
           <div class="rank-note" id="rankNote">Town not recognized — ranked by soonest only.</div>
           <div id="resultCards"></div>
-          <div class="all-open">
-            <h3>All first openings</h3>
-            <ul id="allOpenList"></ul>
-          </div>
         </div>
 
         <p class="footer-note">Availability comes from the synced Gorilla Desk schedule (see the “as of” time above). This tool does not book the job — book in Gorilla Desk as usual.</p>
@@ -361,10 +341,10 @@
 
       /* ================= Constants ================= */
       var SERVICES = {
-        "wildlife-inspection": { label: "Wildlife Inspection", pool: "wildlife", len: 60 },
-        "trapping":            { label: "Trapping",            pool: "wildlife", len: 60 },
-        "exclusion":           { label: "Exclusion",           pool: "wildlife", len: 60 },
-        "pest-service":        { label: "Pest Control Service", pool: "pest",    len: 60 }
+        "wildlife-inspection": { label: "Wildlife Inspection", pool: "wildlife", len: 55 },
+        "trapping":            { label: "Trapping",            pool: "wildlife", len: 55 },
+        "exclusion":           { label: "Exclusion",           pool: "wildlife", len: 55 },
+        "pest-service":        { label: "Pest Control Service", pool: "pest",    len: 55 }
       };
 
       var UNITS = {
@@ -481,6 +461,17 @@
           timeZone: "UTC", weekday: "short", month: "short", day: "numeric"
         }).format(parseDateStr(s));
       }
+      function nowMinutesNY() {
+        var parts = new Intl.DateTimeFormat("en-US", {
+          timeZone: "America/New_York", hour: "numeric", minute: "2-digit", hourCycle: "h23"
+        }).formatToParts(new Date());
+        var h = 0, m = 0;
+        parts.forEach(function (p) {
+          if (p.type === "hour") h = parseInt(p.value, 10) % 24;
+          if (p.type === "minute") m = parseInt(p.value, 10);
+        });
+        return h * 60 + m;
+      }
       function fmtTime(min) {
         var h = Math.floor(min / 60), m = min % 60;
         var ampm = h >= 12 ? "PM" : "AM";
@@ -585,7 +576,6 @@
       /* ================= Main / sync status ================= */
       function enterMain() {
         showMain();
-        $("dateInput").value = todayNY();
         refreshSyncStatus();
       }
 
@@ -630,10 +620,16 @@
         return aStart < bEnd && bStart < aEnd;
       }
 
-      function runEngine(jobs, pool, lengthMin, earliestDate, clientTownRaw) {
+      function runEngine(jobs, pool, lengthMin, clientTownRaw) {
         var units = UNITS[pool];
         var clientKey = normalizeTown(clientTownRaw);
         var client = CENTROIDS[clientKey] || null;
+
+        /* Never offer a slot in the past: days before today yield nothing,
+           and on today only start times strictly later than the current
+           America/New_York time qualify. */
+        var todayStr = todayNY();
+        var nowMin = nowMinutesNY();
 
         /* Index blocking jobs: date -> tech -> [jobs] */
         var byDateTech = {};
@@ -657,8 +653,10 @@
 
         function earliestFreeSlot(unit, dateStr) {
           var dayJobs = unitJobsOn(unit, dateStr);
+          var isToday = dateStr === todayStr;
           for (var start = DAY_START; start + lengthMin <= DAY_END; start += 30) {
             var end = start + lengthMin;
+            if (isToday && start <= nowMin) continue; // slot already past
             if (unit.noBefore10 && overlaps(start, end, JOSH_BLOCK_START, JOSH_BLOCK_END)) continue;
             var free = true;
             for (var i = 0; i < dayJobs.length; i++) {
@@ -683,33 +681,33 @@
           return { dist: best, town: bestTown, hasJobs: true };
         }
 
-        /* 14 calendar days from earliest date, Saturdays and Sundays skipped */
+        /* Always search from right now: 14 calendar days starting today,
+           Saturdays and Sundays skipped; days entirely in the past
+           produce no openings */
         var days = [];
         for (var i = 0; i < 14; i++) {
-          var ds = addDays(earliestDate, i);
+          var ds = addDays(todayStr, i);
+          if (ds < todayStr) continue;
           var dow = parseDateStr(ds).getUTCDay();
           if (dow === 0 || dow === 6) continue; // Sunday / Saturday
           days.push(ds);
         }
 
         var candidates = [];
-        var firstByUnit = {}; // unit name -> {date, start}
-        units.forEach(function (u) { firstByUnit[u.name] = null; });
 
         days.forEach(function (ds) {
           units.forEach(function (u) {
             var start = earliestFreeSlot(u, ds);
             if (start === null) return;
             var ni = nearestInfo(u, ds);
-            /* 5-mile rule: a unit is only offered when its nearest job that
-               day is within 5 miles of the client's town. A unit with no
+            /* 10-mile rule: a unit is only offered when its nearest job that
+               day is within 10 miles of the client's town. A unit with no
                jobs that day (or no measurable distance) doesn't qualify. */
-            if (ni.dist === null || ni.dist > 5) return;
+            if (ni.dist === null || ni.dist > 10) return;
             candidates.push({
               unit: u.name, date: ds, start: start,
               dist: ni.dist, nearTown: ni.town, hasJobs: ni.hasJobs
             });
-            if (!firstByUnit[u.name]) firstByUnit[u.name] = { date: ds, start: start };
           });
         });
 
@@ -721,21 +719,8 @@
           return a.start - b.start;
         });
 
-        var allFirst = units.map(function (u) {
-          return { unit: u.name, first: firstByUnit[u.name] };
-        }).sort(function (a, b) {
-          if (a.first && b.first) {
-            if (a.first.date !== b.first.date) return a.first.date < b.first.date ? -1 : 1;
-            return a.first.start - b.first.start;
-          }
-          if (a.first) return -1;
-          if (b.first) return 1;
-          return 0;
-        });
-
         return {
           top: candidates.slice(0, 3),
-          allFirst: allFirst,
           townKnown: !!client,
           clientDisplay: client ? client.display : null
         };
@@ -748,7 +733,7 @@
         var svc = SERVICES[$("serviceSelect").value];
         var lengthMin = parseInt($("lengthSelect").value, 10);
         var townRaw = $("townInput").value.trim();
-        var earliest = $("dateInput").value || todayNY();
+        var earliest = todayNY();
         var err = $("searchErr");
         err.classList.remove("show");
 
@@ -765,7 +750,7 @@
           btn.disabled = false; btn.textContent = "Find top 3 openings";
           if (!Array.isArray(jobs)) { signOut(); return; }
           updateTownDatalist(jobs);
-          var result = runEngine(jobs, svc.pool, lengthMin, earliest, townRaw);
+          var result = runEngine(jobs, svc.pool, lengthMin, townRaw);
           renderResults(result, svc, lengthMin, townRaw);
         }).catch(function () {
           searching = false;
@@ -804,8 +789,8 @@
           var none = document.createElement("div");
           none.className = "none-msg";
           none.textContent = townRaw
-            ? "No openings within 5 miles of " + townRaw + " in the next 14 days. Openings are only offered when a tech is already working within 5 miles of the client that day."
-            : "No openings found in the next 14 days for this service. Enter the client's town — openings are only offered when a tech is already working within 5 miles of the client that day.";
+            ? "No openings within 10 miles of " + townRaw + " in the next 14 days. Openings are only offered when a tech is already working within 10 miles of the client that day."
+            : "No openings found in the next 14 days for this service. Enter the client's town — openings are only offered when a tech is already working within 10 miles of the client that day.";
           box.appendChild(none);
         }
         result.top.forEach(function (c, idx) {
@@ -832,20 +817,6 @@
               '<div class="result-why' + (whyNeutral ? " neutral" : "") + '">' + escapeHtml(why) + "</div>" +
             "</div>";
           box.appendChild(card);
-        });
-
-        var ul = $("allOpenList");
-        ul.innerHTML = "";
-        result.allFirst.forEach(function (row) {
-          var li = document.createElement("li");
-          if (row.first) {
-            li.innerHTML = "<strong>" + escapeHtml(row.unit) + '</strong><span class="t">' +
-              escapeHtml(prettyDate(row.first.date)) + " · " + fmtTime(row.first.start) + "</span>";
-          } else {
-            li.className = "none";
-            li.innerHTML = "<strong>" + escapeHtml(row.unit) + '</strong><span class="t">No opening in the next 14 days</span>';
-          }
-          ul.appendChild(li);
         });
 
         $("results").scrollIntoView({ behavior: "smooth", block: "start" });
@@ -880,7 +851,6 @@
               return;
             }
             showMain();
-            $("dateInput").value = todayNY();
             syncInfo = info;
             /* reuse the validation response to paint the sync line */
             var line = $("syncLine"), banner = $("noDataBanner"), btn = $("searchBtn");
@@ -900,8 +870,12 @@
         }
       })();
     </script>
-  <script>
-if ('serviceWorker' in navigator) { window.addEventListener('load', function(){ navigator.serviceWorker.register('./sw.js').catch(function(){}); }); }
-</script>
-</body>
+    <script>
+      if ("serviceWorker" in navigator) {
+        window.addEventListener("load", function () {
+          navigator.serviceWorker.register("./sw.js").catch(function () { /* offline support unavailable — page works as-is */ });
+        });
+      }
+    </script>
+  </body>
 </html>
