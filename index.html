@@ -214,6 +214,10 @@
         background: var(--ok-bg); color: var(--ok-ink); border-radius: 6px; font-weight: 600;
       }
       .result-why.neutral { background: var(--surface-2); color: var(--ink-2); }
+      .result-solo {
+        font-size: 14px; margin-top: 6px; padding: 8px 11px;
+        background: var(--warn-bg); color: var(--warn-ink); border-radius: 6px; font-weight: 600;
+      }
       .none-msg {
         background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
         padding: 18px; font-size: 15.5px; font-weight: 600;
@@ -621,7 +625,12 @@
          (Clock out)"). A hold blocks its tech's time exactly like a booked
          job — regardless of status (holds may have an empty status) — but
          it is NOT a job: it has no location and must never count in the
-         nearest-job distance calculation or the why-line. */
+         nearest-job distance calculation or the why-line.
+         TEAM RULE: one member being unavailable (a hold like this, time
+         off, or a job of their own) blocks the TEAM for that time — the
+         pair can't be offered together — but the other member can still be
+         offered on their own for those slots; they'll be working with
+         another helper while their teammate is unavailable. */
       function isHold(job) {
         if (!job) return false;
         var candidates = [
@@ -709,6 +718,16 @@
           return out;
         }
 
+        function memberRowsOn(tech, dateStr) {
+          var dayMap = byDateTech[dateStr] || {};
+          return dayMap[tech] || [];
+        }
+
+        function memberRealJobsOn(tech, dateStr) {
+          var dayMap = byDateTechJobs[dateStr] || {};
+          return dayMap[tech] || [];
+        }
+
         function earliestFreeSlot(unit, dateStr) {
           var dayJobs = unitJobsOn(unit, dateStr);
           var isToday = dateStr === todayStr;
@@ -725,8 +744,7 @@
           return null;
         }
 
-        function nearestInfo(unit, dateStr) {
-          var dayJobs = unitRealJobsOn(unit, dateStr);
+        function nearestFromJobs(dayJobs) {
           if (!dayJobs.length) return { dist: null, town: null, hasJobs: false };
           if (!client) return { dist: null, town: null, hasJobs: true };
           var best = null, bestTown = null;
@@ -737,6 +755,44 @@
             if (best === null || d < best) { best = d; bestTown = c.display; }
           });
           return { dist: best, town: bestTown, hasJobs: true };
+        }
+
+        function nearestInfo(unit, dateStr) {
+          return nearestFromJobs(unitRealJobsOn(unit, dateStr));
+        }
+
+        /* Solo offer for one member of a team: the earliest slot where the
+           member is free BUT at least one teammate is blocked (booked job,
+           hold, or time off overlapping the slot) — i.e. a slot the team
+           itself can't take, where this member can go with another helper.
+           Slots where the whole team is free are covered by the team offer
+           and never duplicated as solo offers. The member's own jobs and
+           holds still block them exactly as usual. */
+        function earliestSoloSlot(unit, member, dateStr) {
+          var myRows = memberRowsOn(member, dateStr);
+          var partnerRows = [];
+          unit.members.forEach(function (m) {
+            if (m === member) return;
+            memberRowsOn(m, dateStr).forEach(function (j) { partnerRows.push(j); });
+          });
+          if (!partnerRows.length) return null;
+          var isToday = dateStr === todayStr;
+          for (var start = DAY_START; start + lengthMin <= DAY_END; start += 30) {
+            var end = start + lengthMin;
+            if (isToday && start <= nowMin) continue; // slot already past
+            if (unit.noBefore10 && overlaps(start, end, JOSH_BLOCK_START, JOSH_BLOCK_END)) continue;
+            var i, blocked = false;
+            for (i = 0; i < myRows.length; i++) {
+              if (overlaps(start, end, myRows[i].start_min, myRows[i].end_min)) { blocked = true; break; }
+            }
+            if (blocked) continue;
+            var partnerBlocked = false;
+            for (i = 0; i < partnerRows.length; i++) {
+              if (overlaps(start, end, partnerRows[i].start_min, partnerRows[i].end_min)) { partnerBlocked = true; break; }
+            }
+            if (partnerBlocked) return start;
+          }
+          return null;
         }
 
         /* Always search from right now: 14 calendar days starting today,
@@ -756,16 +812,38 @@
         days.forEach(function (ds) {
           units.forEach(function (u) {
             var start = earliestFreeSlot(u, ds);
-            if (start === null) return;
-            var ni = nearestInfo(u, ds);
-            /* 10-mile rule: a unit is only offered when its nearest job that
-               day is within 10 miles of the client's town. A unit with no
-               jobs that day (or no measurable distance) doesn't qualify. */
-            if (ni.dist === null || ni.dist > 10) return;
-            candidates.push({
-              unit: u.name, date: ds, start: start,
-              dist: ni.dist, nearTown: ni.town, hasJobs: ni.hasJobs
-            });
+            if (start !== null) {
+              var ni = nearestInfo(u, ds);
+              /* 10-mile rule: a unit is only offered when its nearest job that
+                 day is within 10 miles of the client's town. A unit with no
+                 jobs that day (or no measurable distance) doesn't qualify. */
+              if (ni.dist !== null && ni.dist <= 10) {
+                candidates.push({
+                  unit: u.name, date: ds, start: start,
+                  dist: ni.dist, nearTown: ni.town, hasJobs: ni.hasJobs,
+                  soloNote: null
+                });
+              }
+            }
+            /* Solo offers: if a teammate is unavailable (booked, hold, or
+               time off), the other member can be offered on their own —
+               they'll have another helper. Distance is measured from the
+               member's own jobs that day, same 10-mile rule. */
+            if (u.members.length > 1) {
+              u.members.forEach(function (m) {
+                var sStart = earliestSoloSlot(u, m, ds);
+                if (sStart === null) return;
+                var sni = nearestFromJobs(memberRealJobsOn(m, ds));
+                if (sni.dist === null || sni.dist > 10) return;
+                var others = u.members.filter(function (x) { return x !== m; });
+                candidates.push({
+                  unit: m, date: ds, start: sStart,
+                  dist: sni.dist, nearTown: sni.town, hasJobs: sni.hasJobs,
+                  soloNote: others.join(" & ") + (others.length > 1 ? " are" : " is") +
+                    " unavailable — " + m + " can be offered with another helper"
+                });
+              });
+            }
           });
         });
 
@@ -872,6 +950,7 @@
               '<div class="result-unit">' + escapeHtml(c.unit) + "</div>" +
               '<div class="result-when">' + escapeHtml(prettyDate(c.date)) + "</div>" +
               '<div class="result-start">Starts ' + fmtTime(c.start) + " · " + fmtLen(lengthMin) + "</div>" +
+              (c.soloNote ? '<div class="result-solo">' + escapeHtml(c.soloNote) + "</div>" : "") +
               '<div class="result-why' + (whyNeutral ? " neutral" : "") + '">' + escapeHtml(why) + "</div>" +
             "</div>";
           box.appendChild(card);
