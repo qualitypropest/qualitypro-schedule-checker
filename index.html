@@ -616,6 +616,28 @@
         }
         return true; // unrecognized status: treat the slot as filled
       }
+      /* HOLD rows: the service reads "Custom Event" or "Time Off",
+         sometimes with label text after it (e.g. "Custom Event — Lunch
+         (Clock out)"). A hold blocks its tech's time exactly like a booked
+         job — regardless of status (holds may have an empty status) — but
+         it is NOT a job: it has no location and must never count in the
+         nearest-job distance calculation or the why-line. */
+      function isHold(job) {
+        if (!job) return false;
+        var candidates = [
+          job.service, job.service_name, job.serviceName,
+          job.title, job.job_type, job.type, job.name
+        ];
+        for (var i = 0; i < candidates.length; i++) {
+          var v = candidates[i];
+          if (v == null || v === "") continue;
+          var s = String(v).trim().toLowerCase().replace(/\s+/g, " ");
+          if (s.indexOf("custom event") === 0 || s.indexOf("time off") === 0 || s.indexOf("timeoff") === 0) {
+            return true;
+          }
+        }
+        return false;
+      }
       function overlaps(aStart, aEnd, bStart, bEnd) {
         return aStart < bEnd && bStart < aEnd;
       }
@@ -631,20 +653,56 @@
         var todayStr = todayNY();
         var nowMin = nowMinutesNY();
 
-        /* Index blocking jobs: date -> tech -> [jobs] */
+        /* Index blocking rows: date -> tech -> [rows].
+           byDateTech holds everything that blocks time — real blocking
+           jobs PLUS holds (holds always block, whatever their status).
+           byDateTechJobs holds ONLY real jobs, for the distance maths:
+           holds have no location and must never count as a "nearest job". */
+        var poolTechs = {};
+        units.forEach(function (u) {
+          u.members.forEach(function (m) { poolTechs[m] = true; });
+        });
         var byDateTech = {};
+        var byDateTechJobs = {};
         jobs.forEach(function (j) {
-          if (j.grp !== pool) return;
-          if (!isBlocking(j)) return;
+          var hold = isHold(j);
+          var belongs = (j.grp === pool) || (hold && poolTechs[j.tech]);
+          if (!belongs) return;
+          if (!hold && !isBlocking(j)) return;
           var d = j.job_date;
           if (!byDateTech[d]) byDateTech[d] = {};
           if (!byDateTech[d][j.tech]) byDateTech[d][j.tech] = [];
-          byDateTech[d][j.tech].push(j);
+          var blockRow = j;
+          if (hold) {
+            var hs = Number(j.start_min), he = Number(j.end_min);
+            if (!isFinite(hs) || !isFinite(he) || he <= hs) {
+              /* Hold without a usable time range blocks the whole work day */
+              blockRow = {};
+              for (var k in j) { if (Object.prototype.hasOwnProperty.call(j, k)) blockRow[k] = j[k]; }
+              blockRow.start_min = DAY_START;
+              blockRow.end_min = DAY_END;
+            }
+          }
+          byDateTech[d][j.tech].push(blockRow);
+          if (!hold) {
+            if (!byDateTechJobs[d]) byDateTechJobs[d] = {};
+            if (!byDateTechJobs[d][j.tech]) byDateTechJobs[d][j.tech] = [];
+            byDateTechJobs[d][j.tech].push(j);
+          }
         });
 
         function unitJobsOn(unit, dateStr) {
           var out = [];
           var dayMap = byDateTech[dateStr] || {};
+          unit.members.forEach(function (m) {
+            (dayMap[m] || []).forEach(function (j) { out.push(j); });
+          });
+          return out;
+        }
+
+        function unitRealJobsOn(unit, dateStr) {
+          var out = [];
+          var dayMap = byDateTechJobs[dateStr] || {};
           unit.members.forEach(function (m) {
             (dayMap[m] || []).forEach(function (j) { out.push(j); });
           });
@@ -668,7 +726,7 @@
         }
 
         function nearestInfo(unit, dateStr) {
-          var dayJobs = unitJobsOn(unit, dateStr);
+          var dayJobs = unitRealJobsOn(unit, dateStr);
           if (!dayJobs.length) return { dist: null, town: null, hasJobs: false };
           if (!client) return { dist: null, town: null, hasJobs: true };
           var best = null, bestTown = null;
