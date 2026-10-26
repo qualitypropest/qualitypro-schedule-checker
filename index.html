@@ -226,6 +226,47 @@
         margin-top: 26px; font-size: 13.5px; color: var(--ink-3);
         border-top: 1px solid var(--line); padding-top: 14px;
       }
+
+      /* ---------- address lookup ---------- */
+      .addr-row { display: flex; gap: 10px; }
+      .addr-row input { flex: 1; min-width: 0; }
+      .btn-inline {
+        width: auto; margin-top: 0; padding: 12px 16px; min-height: 50px;
+        font-size: 16px; white-space: nowrap; flex: 0 0 auto;
+      }
+      @media (max-width: 430px) {
+        .addr-row { flex-direction: column; }
+        .btn-inline { width: 100%; }
+      }
+      .addr-status { font-size: 14px; color: var(--ink-2); margin-top: 10px; display: none; }
+      .addr-status.show { display: block; }
+      .addr-status.bad {
+        background: var(--warn-bg); color: var(--warn-ink);
+        border-radius: 8px; padding: 10px 13px; font-weight: 600;
+      }
+      .addr-results { margin-top: 10px; display: none; }
+      .addr-results.show { display: block; }
+      .addr-results p { font-size: 13.5px; color: var(--ink-2); margin: 0 0 8px; font-weight: 600; }
+      .addr-result {
+        display: block; width: 100%; text-align: left;
+        background: var(--surface-2); border: 1px solid var(--line);
+        border-radius: 8px; padding: 11px 13px; font: inherit; font-size: 15px;
+        color: var(--ink); margin-bottom: 8px; cursor: pointer; min-height: 48px;
+      }
+      .addr-result:active { background: var(--red-soft); }
+      .addr-picked {
+        margin-top: 12px; background: var(--ok-bg); color: var(--ok-ink);
+        border-radius: 8px; padding: 11px 13px; font-size: 14.5px;
+        display: flex; gap: 10px; align-items: flex-start; justify-content: space-between;
+      }
+      .addr-picked span { min-width: 0; overflow-wrap: break-word; }
+      .addr-clear {
+        background: transparent; border: 1.5px solid currentColor; color: inherit;
+        border-radius: 6px; font: inherit; font-size: 13px; font-weight: 700;
+        padding: 6px 11px; cursor: pointer; flex: 0 0 auto; min-height: 36px;
+      }
+      .backup-note { font-size: 13.5px; color: var(--ink-2); margin: 20px 0 0; }
+      .backup-note strong { color: var(--ink); }
       .hidden { display: none !important; }
     </style>
   </head>
@@ -292,6 +333,19 @@
             <option value="240">4 hours</option>
           </select>
 
+          <label for="addressInput">Client address</label>
+          <div class="addr-row">
+            <input id="addressInput" type="text" placeholder="Street address, town, state and/or ZIP" autocomplete="off" />
+            <button class="btn btn-inline" id="findAddrBtn" type="button">Find address</button>
+          </div>
+          <div class="addr-status" id="addrStatus"></div>
+          <div class="addr-results" id="addrResults"></div>
+          <div class="addr-picked hidden" id="addrPicked">
+            <span>Using this address: <strong id="addrPickedText"></strong></span>
+            <button class="addr-clear" id="addrClearBtn" type="button">Clear</button>
+          </div>
+
+          <p class="backup-note"><strong>Backup:</strong> if the address lookup finds nothing, enter the client town instead — the search works from the town.</p>
           <div class="row2">
             <div>
               <label for="townInput">Client town</label>
@@ -651,10 +705,15 @@
         return aStart < bEnd && bStart < aEnd;
       }
 
-      function runEngine(jobs, pool, lengthMin, clientTownRaw) {
+      /* clientPoint is { lat, lon, display, isAddress } or null. When the
+         staff picked a geocoded client address, its exact coordinates are
+         the client point; otherwise the client town's centroid is used.
+         Every distance below — the 10-mile rule and the nearest-job
+         ranking — measures from that point to the town centroids of the
+         techs' jobs (Gorilla Desk data only carries town/ZIP). */
+      function runEngine(jobs, pool, lengthMin, clientPoint) {
         var units = UNITS[pool];
-        var clientKey = normalizeTown(clientTownRaw);
-        var client = CENTROIDS[clientKey] || null;
+        var client = clientPoint || null;
 
         /* Never offer a slot in the past: days before today yield nothing,
            and on today only start times strictly later than the current
@@ -815,7 +874,8 @@
             if (start !== null) {
               var ni = nearestInfo(u, ds);
               /* 10-mile rule: a unit is only offered when its nearest job that
-                 day is within 10 miles of the client's town. A unit with no
+                 day is within 10 miles of the client (the picked address, or
+                 the town centroid when no address was picked). A unit with no
                  jobs that day (or no measurable distance) doesn't qualify. */
               if (ni.dist !== null && ni.dist <= 10) {
                 candidates.push({
@@ -858,8 +918,101 @@
         return {
           top: candidates.slice(0, 3),
           townKnown: !!client,
-          clientDisplay: client ? client.display : null
+          clientDisplay: client ? client.display : null,
+          clientIsAddress: !!(client && client.isAddress)
         };
+      }
+
+      /* ================= Address lookup (OpenStreetMap Nominatim) ================= */
+      /* Free geocoding, no API key. Results are restricted to the US and
+         biased (viewbox, not bounded) toward the service area: Westchester /
+         Putnam / Rockland / Bronx / Fairfield County, CT. */
+      var selectedAddress = null; // { lat, lon, display, short }
+      var addrSearching = false;
+
+      function setAddrStatus(msg, bad) {
+        var el = $("addrStatus");
+        el.textContent = msg || "";
+        el.classList.toggle("show", !!msg);
+        el.classList.toggle("bad", !!bad);
+      }
+      function clearPickedAddress() {
+        selectedAddress = null;
+        $("addrPicked").classList.add("hidden");
+      }
+      function shortAddressLabel(item) {
+        var a = (item && item.address) || {};
+        var street = ((a.house_number || "") + " " + (a.road || "")).trim();
+        var town = a.city || a.town || a.village || a.hamlet || a.suburb || "";
+        var parts = [];
+        if (street) parts.push(street);
+        if (town) parts.push(town);
+        if (a.state) parts.push(a.state);
+        if (a.postcode) parts.push(a.postcode);
+        return parts.length ? parts.join(", ") : item.display_name;
+      }
+      function pickAddress(item) {
+        var lat = parseFloat(item.lat), lon = parseFloat(item.lon);
+        if (!isFinite(lat) || !isFinite(lon)) return;
+        selectedAddress = {
+          lat: lat, lon: lon,
+          display: item.display_name,
+          short: shortAddressLabel(item)
+        };
+        $("addrPickedText").textContent = item.display_name;
+        $("addrPicked").classList.remove("hidden");
+        var box = $("addrResults");
+        box.innerHTML = "";
+        box.classList.remove("show");
+        setAddrStatus("", false);
+      }
+      function findAddress() {
+        if (addrSearching) return;
+        var q = $("addressInput").value.trim();
+        if (!q) {
+          setAddrStatus("Type the client's address first, then tap Find address.", true);
+          return;
+        }
+        addrSearching = true;
+        clearPickedAddress();
+        var btn = $("findAddrBtn");
+        btn.disabled = true; btn.textContent = "Looking up…";
+        var box = $("addrResults");
+        box.innerHTML = "";
+        box.classList.remove("show");
+        setAddrStatus("Looking up the address…", false);
+        var url = "https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1" +
+          "&countrycodes=us&limit=5&viewbox=-74.30,41.75,-73.20,40.80&q=" + encodeURIComponent(q);
+        function done() {
+          addrSearching = false;
+          btn.disabled = false; btn.textContent = "Find address";
+        }
+        fetch(url, { headers: { "Accept": "application/json" } }).then(function (res) {
+          if (!res.ok) throw new Error("Nominatim " + res.status);
+          return res.json();
+        }).then(function (items) {
+          done();
+          if (!Array.isArray(items) || !items.length) {
+            setAddrStatus("No matching address found — check the spelling, or use the client town below.", true);
+            return;
+          }
+          setAddrStatus("", false);
+          var head = document.createElement("p");
+          head.textContent = "Tap the client's address:";
+          box.appendChild(head);
+          items.slice(0, 5).forEach(function (item) {
+            var b = document.createElement("button");
+            b.type = "button";
+            b.className = "addr-result";
+            b.textContent = item.display_name;
+            b.addEventListener("click", function () { pickAddress(item); });
+            box.appendChild(b);
+          });
+          box.classList.add("show");
+        }).catch(function () {
+          done();
+          setAddrStatus("Address lookup didn't work — use the client town below instead.", true);
+        });
       }
 
       /* ================= Search ================= */
@@ -872,6 +1025,20 @@
         var earliest = todayNY();
         var err = $("searchErr");
         err.classList.remove("show");
+
+        /* A picked client address wins over the town: all distances are
+           measured from the address's exact coordinates. With no pick,
+           fall back to the town centroid, exactly as before. */
+        var clientPoint = null;
+        if (selectedAddress) {
+          clientPoint = {
+            lat: selectedAddress.lat, lon: selectedAddress.lon,
+            display: selectedAddress.short, isAddress: true
+          };
+        } else if (townRaw) {
+          var tc = CENTROIDS[normalizeTown(townRaw)];
+          if (tc) clientPoint = { lat: tc.lat, lon: tc.lon, display: tc.display, isAddress: false };
+        }
 
         searching = true;
         var btn = $("searchBtn");
@@ -886,7 +1053,7 @@
           btn.disabled = false; btn.textContent = "Find top 3 openings";
           if (!Array.isArray(jobs)) { signOut(); return; }
           updateTownDatalist(jobs);
-          var result = runEngine(jobs, svc.pool, lengthMin, townRaw);
+          var result = runEngine(jobs, svc.pool, lengthMin, clientPoint);
           renderResults(result, svc, lengthMin, townRaw);
         }).catch(function () {
           searching = false;
@@ -916,7 +1083,8 @@
 
       function renderResults(result, svc, lengthMin, townRaw) {
         $("results").classList.add("show");
-        $("resultsFor").textContent = svc.label + (townRaw ? " · " + townRaw : "");
+        $("resultsFor").textContent = svc.label +
+          (result.clientIsAddress ? " · " + result.clientDisplay : (townRaw ? " · " + townRaw : ""));
         $("rankNote").classList.toggle("show", !result.townKnown && result.top.length > 0);
 
         var box = $("resultCards");
@@ -924,9 +1092,11 @@
         if (!result.top.length) {
           var none = document.createElement("div");
           none.className = "none-msg";
-          none.textContent = townRaw
-            ? "No openings within 10 miles of " + townRaw + " in the next 14 days. Openings are only offered when a tech is already working within 10 miles of the client that day."
-            : "No openings found in the next 14 days for this service. Enter the client's town — openings are only offered when a tech is already working within 10 miles of the client that day.";
+          none.textContent = result.clientIsAddress
+            ? "No openings within 10 miles of the client's address in the next 14 days. Openings are only offered when a tech is already working within 10 miles of the client that day."
+            : (townRaw
+              ? "No openings within 10 miles of " + townRaw + " in the next 14 days. Openings are only offered when a tech is already working within 10 miles of the client that day."
+              : "No openings found in the next 14 days for this service. Enter the client's town — openings are only offered when a tech is already working within 10 miles of the client that day.");
           box.appendChild(none);
         }
         result.top.forEach(function (c, idx) {
@@ -934,9 +1104,13 @@
           card.className = "result-card";
           var why, whyNeutral = false;
           if (c.dist !== null && c.dist < 0.05) {
-            why = "Already working in " + (result.clientDisplay || townRaw) + " that day";
+            why = result.clientIsAddress
+              ? "Already working in " + c.nearTown + " that day — the client's town"
+              : "Already working in " + (result.clientDisplay || townRaw) + " that day";
           } else if (c.dist !== null) {
-            why = "Nearest job that day is in " + c.nearTown + " (~" + Math.round(c.dist) + " mi)";
+            why = result.clientIsAddress
+              ? "Nearest job that day is in " + c.nearTown + ", ~" + Math.round(c.dist) + " mi from the client's address"
+              : "Nearest job that day is in " + c.nearTown + " (~" + Math.round(c.dist) + " mi)";
           } else if (c.hasJobs) {
             why = "Already booked elsewhere that day — distance unavailable";
             whyNeutral = true;
@@ -967,6 +1141,16 @@
       $("pinInput").addEventListener("keydown", function (e) { if (e.key === "Enter") doSignin(); });
       $("signOutBtn").addEventListener("click", signOut);
       $("searchBtn").addEventListener("click", doSearch);
+      $("findAddrBtn").addEventListener("click", findAddress);
+      $("addressInput").addEventListener("keydown", function (e) { if (e.key === "Enter") findAddress(); });
+      /* Typing a different address drops the previous pick — the pick must
+         always match the address staff are looking at. */
+      $("addressInput").addEventListener("input", function () { if (selectedAddress) clearPickedAddress(); });
+      $("addrClearBtn").addEventListener("click", function () {
+        clearPickedAddress();
+        $("addressInput").value = "";
+        setAddrStatus("", false);
+      });
 
       /* Seed the town datalist from the centroid table right away */
       updateTownDatalist([]);

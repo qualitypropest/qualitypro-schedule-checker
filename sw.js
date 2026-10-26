@@ -1,6 +1,6 @@
 // QualityPro Schedule Checker — offline service worker
 // Bump VERSION whenever the app content changes so phones pick up the new build.
-const VERSION = 'schedule-checker-v8';
+const VERSION = 'schedule-checker-v9';
 const CORE = [
   './',
   './index.html',
