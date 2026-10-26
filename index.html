@@ -1,0 +1,886 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="light dark" />
+    <link rel="icon" href="./icon-192.png" />
+    <title>Schedule Checker</title>
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="./apple-touch-icon.png" />
+    <meta name="theme-color" content="#141416" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Schedule Checker" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800&family=Archivo+Condensed:wght@600;700&display=swap" rel="stylesheet" />
+    <style>
+      :root {
+        --bg: #f3f4f5;
+        --surface: #ffffff;
+        --surface-2: #eceef0;
+        --ink: #16181a;
+        --ink-2: #4c5257;
+        --ink-3: #7a8187;
+        --line: #d8dbde;
+        --red: #c8102e;
+        --red-dark: #a30d26;
+        --red-soft: #fbe9ec;
+        --black: #101112;
+        --ok-bg: #e7f4ec;
+        --ok-ink: #1d6b3c;
+        --warn-bg: #fdf3dd;
+        --warn-ink: #7a5510;
+        --shadow: 0 1px 2px rgba(16,17,18,.06), 0 8px 24px rgba(16,17,18,.07);
+        --radius: 10px;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #131416;
+          --surface: #1d1f22;
+          --surface-2: #26282c;
+          --ink: #f2f3f4;
+          --ink-2: #c3c8cc;
+          --ink-3: #8d9399;
+          --line: #34373c;
+          --red: #e0344f;
+          --red-dark: #c8102e;
+          --red-soft: #3a1d24;
+          --black: #0a0b0c;
+          --ok-bg: #1c3325;
+          --ok-ink: #7fd79e;
+          --warn-bg: #38300f;
+          --warn-ink: #e8c96a;
+          --shadow: 0 1px 2px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.35);
+        }
+      }
+      * { box-sizing: border-box; }
+      html { -webkit-text-size-adjust: 100%; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font-family: "Archivo", system-ui, -apple-system, "Segoe UI", sans-serif;
+        font-size: 16px;
+        line-height: 1.45;
+      }
+      .wrap { max-width: 680px; margin: 0 auto; padding: 0 16px 48px; }
+
+      /* ---------- top strip ---------- */
+      .topbar {
+        background: var(--black);
+        color: #fff;
+        border-bottom: 4px solid var(--red);
+      }
+      .topbar-inner {
+        max-width: 680px; margin: 0 auto; padding: 12px 16px;
+        display: flex; align-items: center; gap: 12px;
+      }
+      .brand {
+        font-family: "Archivo Condensed", "Archivo", sans-serif;
+        font-weight: 700; letter-spacing: .04em; font-size: 19px;
+        text-transform: uppercase; white-space: nowrap;
+      }
+      .brand .pro { color: #ff4d67; }
+      .brand small {
+        display: block; font-family: "Archivo", sans-serif; font-weight: 600;
+        font-size: 10px; letter-spacing: .22em; color: #b9bdc1;
+      }
+      .topbar .spacer { flex: 1; }
+      .signed-in { font-size: 13px; color: #d7dade; text-align: right; line-height: 1.3; }
+      .signed-in strong { color: #fff; display: block; font-size: 14px; }
+      .signout-btn {
+        background: transparent; color: #fff; border: 1px solid #4a4e52;
+        border-radius: 6px; padding: 8px 12px; font: inherit; font-size: 13px;
+        font-weight: 600; cursor: pointer; min-height: 40px;
+      }
+      .signout-btn:active { background: #26282b; }
+
+      h1 {
+        font-family: "Archivo Condensed", "Archivo", sans-serif;
+        font-size: 34px; font-weight: 700; letter-spacing: .01em;
+        margin: 24px 0 4px; text-transform: uppercase;
+      }
+      .sub { color: var(--ink-2); margin: 0 0 18px; font-size: 15px; }
+
+      /* ---------- cards & forms ---------- */
+      .card {
+        background: var(--surface); border: 1px solid var(--line);
+        border-radius: var(--radius); box-shadow: var(--shadow);
+        padding: 20px; margin-bottom: 16px;
+      }
+      .card h2 {
+        font-family: "Archivo Condensed", "Archivo", sans-serif;
+        font-size: 21px; margin: 0 0 4px; text-transform: uppercase; letter-spacing: .02em;
+      }
+      label {
+        display: block; font-size: 13px; font-weight: 700;
+        letter-spacing: .05em; text-transform: uppercase;
+        color: var(--ink-2); margin: 16px 0 6px;
+      }
+      label:first-of-type { margin-top: 8px; }
+      input, select {
+        width: 100%; font: inherit; font-size: 17px; color: var(--ink);
+        background: var(--surface); border: 1.5px solid var(--line);
+        border-radius: 8px; padding: 12px 12px; min-height: 50px;
+        appearance: none; -webkit-appearance: none;
+      }
+      select {
+        background-image: linear-gradient(45deg, transparent 50%, var(--ink-3) 50%), linear-gradient(135deg, var(--ink-3) 50%, transparent 50%);
+        background-position: calc(100% - 20px) 55%, calc(100% - 14px) 55%;
+        background-size: 6px 6px, 6px 6px; background-repeat: no-repeat;
+        padding-right: 36px;
+      }
+      input:focus, select:focus { outline: 2px solid var(--red); outline-offset: 1px; border-color: var(--red); }
+      .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+      .row2 label { margin-top: 16px; }
+      @media (max-width: 430px) { .row2 { grid-template-columns: 1fr; } }
+
+      .btn {
+        display: block; width: 100%; margin-top: 22px;
+        background: var(--red); color: #fff; border: none; border-radius: 8px;
+        font: inherit; font-size: 17px; font-weight: 700; letter-spacing: .02em;
+        padding: 15px 16px; min-height: 54px; cursor: pointer;
+      }
+      .btn:active { background: var(--red-dark); }
+      .btn:disabled { background: var(--ink-3); cursor: not-allowed; }
+      .note { font-size: 13.5px; color: var(--ink-2); margin-top: 12px; }
+      .err {
+        background: var(--red-soft); color: var(--red-dark);
+        border-radius: 8px; padding: 11px 13px; font-size: 14.5px;
+        font-weight: 600; margin-top: 14px; display: none;
+      }
+      @media (prefers-color-scheme: dark) { .err { color: #ff8fa3; } }
+      .err.show { display: block; }
+
+      .sync-line {
+        font-size: 13.5px; color: var(--ink-2);
+        background: var(--surface-2); border-radius: 8px;
+        padding: 10px 13px; margin-bottom: 16px;
+      }
+      .sync-line strong { color: var(--ink); }
+      .banner {
+        background: var(--warn-bg); color: var(--warn-ink);
+        border-radius: 8px; padding: 13px 15px; font-weight: 600;
+        font-size: 15px; margin-bottom: 16px; display: none;
+      }
+      .banner.show { display: block; }
+      .fatal {
+        background: var(--red-soft); border-radius: var(--radius);
+        padding: 18px; font-size: 16px; font-weight: 600; color: var(--red-dark);
+        margin-top: 24px; display: none;
+      }
+      @media (prefers-color-scheme: dark) { .fatal { color: #ff8fa3; } }
+      .fatal.show { display: block; }
+
+      /* ---------- results ---------- */
+      #results { display: none; }
+      #results.show { display: block; }
+      .results-head {
+        display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
+        margin: 26px 0 12px;
+      }
+      .results-head h2 {
+        font-family: "Archivo Condensed", "Archivo", sans-serif;
+        font-size: 24px; margin: 0; text-transform: uppercase;
+      }
+      .results-head span { font-size: 13.5px; color: var(--ink-2); text-align: right; }
+      .rank-note {
+        background: var(--warn-bg); color: var(--warn-ink); border-radius: 8px;
+        padding: 10px 13px; font-size: 14px; font-weight: 600; margin-bottom: 12px; display: none;
+      }
+      .rank-note.show { display: block; }
+      .result-card {
+        background: var(--surface); border: 1px solid var(--line);
+        border-radius: var(--radius); box-shadow: var(--shadow);
+        padding: 16px; margin-bottom: 12px;
+        display: flex; gap: 14px; align-items: flex-start;
+      }
+      .rank-badge {
+        flex: 0 0 auto; width: 42px; height: 42px; border-radius: 50%;
+        background: var(--red); color: #fff;
+        display: flex; align-items: center; justify-content: center;
+        font-family: "Archivo Condensed", sans-serif; font-size: 22px; font-weight: 700;
+        margin-top: 2px;
+      }
+      .result-main { flex: 1; min-width: 0; }
+      .result-unit { font-size: 19px; font-weight: 800; line-height: 1.2; }
+      .result-when { font-size: 15.5px; font-weight: 600; margin-top: 2px; }
+      .result-start { font-size: 15px; color: var(--ink-2); margin-top: 1px; }
+      .result-why {
+        font-size: 14px; margin-top: 8px; padding: 8px 11px;
+        background: var(--ok-bg); color: var(--ok-ink); border-radius: 6px; font-weight: 600;
+      }
+      .result-why.neutral { background: var(--surface-2); color: var(--ink-2); }
+      .none-msg {
+        background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
+        padding: 18px; font-size: 15.5px; font-weight: 600;
+      }
+      .all-open { margin-top: 22px; }
+      .all-open h3 {
+        font-family: "Archivo Condensed", "Archivo", sans-serif;
+        font-size: 19px; text-transform: uppercase; margin: 0 0 8px;
+      }
+      .all-open ul { list-style: none; margin: 0; padding: 0; }
+      .all-open li {
+        background: var(--surface); border: 1px solid var(--line); border-radius: 8px;
+        padding: 11px 13px; margin-bottom: 8px; font-size: 15px;
+        display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap;
+      }
+      .all-open li strong { font-weight: 700; }
+      .all-open li .t { color: var(--ink-2); font-weight: 600; white-space: nowrap; }
+      .all-open li.none { color: var(--ink-3); }
+      .footer-note {
+        margin-top: 26px; font-size: 13.5px; color: var(--ink-3);
+        border-top: 1px solid var(--line); padding-top: 14px;
+      }
+      .hidden { display: none !important; }
+    </style>
+  </head>
+  <body>
+    <div class="topbar">
+      <div class="topbar-inner">
+        <div class="brand">Quality<span class="pro">Pro</span>
+          <small>Pest &amp; Wildlife Services</small>
+        </div>
+        <div class="spacer"></div>
+        <div class="signed-in hidden" id="signedInBox">
+          Signed in as<strong id="signedInName"></strong>
+        </div>
+        <button class="signout-btn hidden" id="signOutBtn" type="button">Sign out</button>
+      </div>
+    </div>
+
+    <div class="wrap">
+      <div class="fatal" id="fatalMsg">Can't reach the schedule database from here — open the checker from the office link.</div>
+
+      <!-- Sign-in view -->
+      <section id="signinView" class="hidden">
+        <h1>Schedule Checker</h1>
+        <p class="sub">Office sign-in. Only QualityPro office staff can use this tool.</p>
+        <div class="card">
+          <h2>Sign in</h2>
+          <label for="nameSelect">Your name</label>
+          <select id="nameSelect"><option value="">Loading names…</option></select>
+          <label for="pinInput">PIN</label>
+          <input id="pinInput" type="password" inputmode="numeric" autocomplete="off" maxlength="8" placeholder="4–8 characters" />
+          <div class="err" id="signinErr"></div>
+          <button class="btn" id="signinBtn" type="button">Sign in</button>
+          <p class="note">First time? The PIN you enter becomes your PIN.</p>
+        </div>
+      </section>
+
+      <!-- Main view -->
+      <section id="mainView" class="hidden">
+        <h1>Schedule Checker</h1>
+        <p class="sub">Find the soonest, closest openings for a job — from the real Gorilla Desk schedule.</p>
+
+        <div class="sync-line" id="syncLine">Checking schedule data…</div>
+        <div class="banner" id="noDataBanner">No schedule data yet — the first sync hasn't run. Check back shortly.</div>
+
+        <div class="card">
+          <h2>New job to place</h2>
+          <label for="serviceSelect">Service needed</label>
+          <select id="serviceSelect">
+            <option value="wildlife-inspection">Wildlife Inspection</option>
+            <option value="trapping">Trapping</option>
+            <option value="exclusion">Exclusion</option>
+            <option value="pest-service">Pest Control Service</option>
+          </select>
+
+          <label for="lengthSelect">Job length</label>
+          <select id="lengthSelect">
+            <option value="30">30 minutes</option>
+            <option value="45">45 minutes</option>
+            <option value="60">60 minutes</option>
+            <option value="90">90 minutes</option>
+            <option value="120">2 hours</option>
+            <option value="180">3 hours</option>
+            <option value="240">4 hours</option>
+          </select>
+
+          <div class="row2">
+            <div>
+              <label for="townInput">Client town</label>
+              <input id="townInput" type="text" list="townList" placeholder="e.g. Peekskill" autocomplete="off" />
+              <datalist id="townList"></datalist>
+            </div>
+            <div>
+              <label for="zipInput">Client ZIP (optional)</label>
+              <input id="zipInput" type="text" inputmode="numeric" maxlength="5" placeholder="10566" autocomplete="off" />
+            </div>
+          </div>
+
+          <label for="dateInput">Earliest date</label>
+          <input id="dateInput" type="date" />
+
+          <div class="err" id="searchErr"></div>
+          <button class="btn" id="searchBtn" type="button">Find top 3 openings</button>
+        </div>
+
+        <div id="results">
+          <div class="results-head">
+            <h2>Top openings</h2>
+            <span id="resultsFor"></span>
+          </div>
+          <div class="rank-note" id="rankNote">Town not recognized — ranked by soonest only.</div>
+          <div id="resultCards"></div>
+          <div class="all-open">
+            <h3>All first openings</h3>
+            <ul id="allOpenList"></ul>
+          </div>
+        </div>
+
+        <p class="footer-note">Availability comes from the synced Gorilla Desk schedule (see the “as of” time above). This tool does not book the job — book in Gorilla Desk as usual.</p>
+      </section>
+    </div>
+
+    <script>
+      "use strict";
+
+      /* ================= Backend ================= */
+      var SB_URL = "https://nbhkndetjaytevyzqsuh.supabase.co";
+      var SB_KEY = "sb_publishable_sT4OYqX5_H-GMiWWoDbpzQ_kSGEk8OD";
+
+      function rpc(fn, params) {
+        return fetch(SB_URL + "/rest/v1/rpc/" + fn, {
+          method: "POST",
+          headers: {
+            "apikey": SB_KEY,
+            "Authorization": "Bearer " + SB_KEY,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify(params || {})
+        }).then(function (res) {
+          if (!res.ok) throw new Error("RPC " + fn + " failed: " + res.status);
+          return res.json();
+        });
+      }
+
+      /* ================= Constants ================= */
+      var SERVICES = {
+        "wildlife-inspection": { label: "Wildlife Inspection", pool: "wildlife", len: 60 },
+        "trapping":            { label: "Trapping",            pool: "wildlife", len: 60 },
+        "exclusion":           { label: "Exclusion",           pool: "wildlife", len: 240 },
+        "pest-service":        { label: "Pest Control Service", pool: "pest",    len: 60 }
+      };
+
+      var UNITS = {
+        pest: [
+          { name: "Juan",    members: ["Juan"] },
+          { name: "Miguel",  members: ["Miguel"] },
+          { name: "Hector",  members: ["Hector"] },
+          { name: "Gage",    members: ["Gage"] },
+          { name: "Esteban", members: ["Esteban"] },
+          { name: "Luis E.", members: ["Luis E."] }
+        ],
+        wildlife: [
+          { name: "Luis & Jose",       members: ["Luis", "Jose"] },
+          { name: "Andrew & Mauricio", members: ["Andrew", "Mauricio"] },
+          { name: "Adrian",             members: ["Adrian"] },
+          { name: "Josh",               members: ["Josh"], noBefore10: true }
+        ]
+      };
+
+      var NON_BLOCKING = ["canceled", "cancelled", "reschedule", "terminate service", "completed"];
+      var DAY_START = 480, DAY_END = 1020;         // 8:00 AM – 5:00 PM
+      var JOSH_BLOCK_START = 480, JOSH_BLOCK_END = 600; // 8:00–10:00 AM
+
+      /* Town centroids: normalized name -> [lat, lon, display name] */
+      var CENTROIDS = {};
+      (function () {
+        var raw = [
+          ["Hawthorne",41.108,-73.795],["Peekskill",41.292,-73.920],["Cortlandt",41.255,-73.898],
+          ["Cortlandt Manor",41.259,-73.894],["Yorktown",41.273,-73.808],["Yorktown Heights",41.271,-73.777],
+          ["Ossining",41.163,-73.862],["Briarcliff Manor",41.146,-73.825],["Mount Kisco",41.204,-73.727],
+          ["Chappaqua",41.159,-73.772],["Armonk",41.126,-73.714],["Bedford",41.204,-73.644],
+          ["Bedford Hills",41.237,-73.669],["Katonah",41.259,-73.685],["Pound Ridge",41.208,-73.574],
+          ["South Salem",41.273,-73.556],["North Salem",41.331,-73.580],["Somers",41.305,-73.730],
+          ["Croton-on-Hudson",41.208,-73.887],["Buchanan",41.265,-73.935],["Montrose",41.247,-73.932],
+          ["Shrub Oak",41.330,-73.829],["Mahopac",41.367,-73.736],["Carmel",41.430,-73.679],
+          ["Brewster",41.397,-73.617],["Patterson",41.512,-73.582],["Pawling",41.563,-73.596],
+          ["Putnam Valley",41.337,-73.876],["Cold Spring",41.420,-73.955],["Garrison",41.383,-73.947],
+          ["Sleepy Hollow",41.086,-73.858],["Tarrytown",41.076,-73.859],["Irvington",41.039,-73.866],
+          ["Dobbs Ferry",41.015,-73.872],["Ardsley",41.011,-73.843],["Elmsford",41.055,-73.820],
+          ["Valhalla",41.075,-73.776],["White Plains",41.034,-73.763],["Harrison",41.006,-73.712],
+          ["Rye",40.981,-73.684],["Rye Brook",41.019,-73.683],["Port Chester",41.001,-73.666],
+          ["Mamaroneck",40.949,-73.732],["Larchmont",40.927,-73.752],["New Rochelle",40.911,-73.782],
+          ["Pelham",40.914,-73.810],["Pelham Manor",40.895,-73.807],["Mount Vernon",40.913,-73.837],
+          ["Bronxville",40.938,-73.832],["Eastchester",40.952,-73.814],["Tuckahoe",40.953,-73.826],
+          ["Scarsdale",40.989,-73.785],["Hartsdale",41.021,-73.798],["Pleasantville",41.135,-73.792],
+          ["Thornwood",41.121,-73.777],["Millwood",41.189,-73.800],["Greenwich",41.026,-73.628],
+          ["Riverside",41.033,-73.578],["Stamford",41.053,-73.539],["Darien",41.079,-73.469],
+          ["New Canaan",41.147,-73.495],["Norwalk",41.118,-73.409],["Yonkers",40.931,-73.899],
+          ["Riverdale",40.895,-73.913],["Purchase",41.041,-73.714],["Mohegan Lake",41.319,-73.848],
+          ["Lake Peekskill",41.330,-73.904],["Croton Falls",41.348,-73.662],["Beacon",41.505,-73.970],
+          ["Fishkill",41.534,-73.898],["Hopewell Junction",41.585,-73.806],["Nyack",41.091,-73.918],
+          ["Piermont",41.042,-73.918],["Tappan",41.022,-73.948],["Pearl River",41.059,-74.022],
+          ["Nanuet",41.089,-74.014],["Spring Valley",41.113,-74.043],["New City",41.147,-73.989],
+          ["Congers",41.150,-73.945],["Valley Cottage",41.119,-73.942],["Suffern",41.115,-74.150]
+        ];
+        raw.forEach(function (r) { CENTROIDS[normalizeTown(r[0])] = { lat: r[1], lon: r[2], display: r[0] }; });
+      })();
+
+      function normalizeTown(name) {
+        if (!name) return "";
+        var n = String(name).trim().toLowerCase().replace(/\s+/g, " ");
+        if (n === "mt kisco" || n === "mt. kisco") n = "mount kisco";
+        if (n === "croton on hudson") n = "croton-on-hudson";
+        return n;
+      }
+
+      function haversineMiles(a, b) {
+        var R = 3958.8, toRad = Math.PI / 180;
+        var dLat = (b.lat - a.lat) * toRad, dLon = (b.lon - a.lon) * toRad;
+        var s = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                Math.cos(a.lat * toRad) * Math.cos(b.lat * toRad) *
+                Math.sin(dLon / 2) * Math.sin(dLon / 2);
+        return 2 * R * Math.asin(Math.sqrt(s));
+      }
+
+      /* ================= Date helpers (all date math in UTC on YYYY-MM-DD strings) ================= */
+      function todayNY() {
+        var parts = new Intl.DateTimeFormat("en-CA", {
+          timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit"
+        }).formatToParts(new Date());
+        var y, m, d;
+        parts.forEach(function (p) {
+          if (p.type === "year") y = p.value;
+          if (p.type === "month") m = p.value;
+          if (p.type === "day") d = p.value;
+        });
+        return y + "-" + m + "-" + d;
+      }
+      function parseDateStr(s) {
+        var p = s.split("-");
+        return new Date(Date.UTC(+p[0], +p[1] - 1, +p[2]));
+      }
+      function fmtDateStr(dt) {
+        var m = String(dt.getUTCMonth() + 1), d = String(dt.getUTCDate());
+        if (m.length < 2) m = "0" + m;
+        if (d.length < 2) d = "0" + d;
+        return dt.getUTCFullYear() + "-" + m + "-" + d;
+      }
+      function addDays(s, n) {
+        var dt = parseDateStr(s);
+        dt.setUTCDate(dt.getUTCDate() + n);
+        return fmtDateStr(dt);
+      }
+      function prettyDate(s) {
+        return new Intl.DateTimeFormat("en-US", {
+          timeZone: "UTC", weekday: "short", month: "short", day: "numeric"
+        }).format(parseDateStr(s));
+      }
+      function fmtTime(min) {
+        var h = Math.floor(min / 60), m = min % 60;
+        var ampm = h >= 12 ? "PM" : "AM";
+        var h12 = h % 12; if (h12 === 0) h12 = 12;
+        return h12 + ":" + (m < 10 ? "0" + m : m) + " " + ampm;
+      }
+      function fmtLen(min) {
+        if (min < 60) return min + " min job";
+        if (min % 60 === 0) return (min / 60) + (min === 60 ? " hr job" : " hr job");
+        return Math.floor(min / 60) + " hr " + (min % 60) + " min job";
+      }
+      function fmtSyncTime(iso) {
+        if (!iso) return "";
+        try {
+          return new Intl.DateTimeFormat("en-US", {
+            timeZone: "America/New_York", weekday: "short", month: "short", day: "numeric",
+            hour: "numeric", minute: "2-digit"
+          }).format(new Date(iso));
+        } catch (e) { return iso; }
+      }
+
+      /* ================= State ================= */
+      var token = null, userName = null, syncInfo = null;
+
+      function $(id) { return document.getElementById(id); }
+      function showFatal() {
+        $("fatalMsg").classList.add("show");
+        $("signinView").classList.add("hidden");
+        $("mainView").classList.add("hidden");
+      }
+
+      /* ================= Sign-in ================= */
+      function showSignin() {
+        $("mainView").classList.add("hidden");
+        $("signedInBox").classList.add("hidden");
+        $("signOutBtn").classList.add("hidden");
+        $("signinView").classList.remove("hidden");
+      }
+      function showMain() {
+        $("signinView").classList.add("hidden");
+        $("signedInName").textContent = userName || "";
+        $("signedInBox").classList.remove("hidden");
+        $("signOutBtn").classList.remove("hidden");
+        $("mainView").classList.remove("hidden");
+      }
+
+      function loadNames() {
+        rpc("sched_list_names", {}).then(function (rows) {
+          var sel = $("nameSelect");
+          sel.innerHTML = "";
+          var ph = document.createElement("option");
+          ph.value = ""; ph.textContent = "Choose your name…";
+          sel.appendChild(ph);
+          (rows || []).forEach(function (r) {
+            var o = document.createElement("option");
+            o.value = r.name; o.textContent = r.name;
+            sel.appendChild(o);
+          });
+        }).catch(showFatal);
+      }
+
+      function doSignin() {
+        var name = $("nameSelect").value;
+        var pin = $("pinInput").value.trim();
+        var err = $("signinErr");
+        err.classList.remove("show");
+        if (!name) { err.textContent = "Pick your name first."; err.classList.add("show"); return; }
+        if (pin.length < 4 || pin.length > 8) {
+          err.textContent = "PIN must be 4–8 characters."; err.classList.add("show"); return;
+        }
+        var btn = $("signinBtn");
+        btn.disabled = true; btn.textContent = "Signing in…";
+        rpc("sched_claim_or_verify_pin", { p_name: name, p_pin: pin }).then(function (tok) {
+          btn.disabled = false; btn.textContent = "Sign in";
+          if (!tok) {
+            err.textContent = "That PIN doesn't match — try again.";
+            err.classList.add("show");
+            return;
+          }
+          token = tok; userName = name;
+          try {
+            localStorage.setItem("sched_token", tok);
+            localStorage.setItem("sched_name", name);
+          } catch (e) { /* storage unavailable — session still works in memory */ }
+          enterMain();
+        }).catch(function () {
+          btn.disabled = false; btn.textContent = "Sign in";
+          showFatal();
+        });
+      }
+
+      function signOut() {
+        token = null; userName = null;
+        try {
+          localStorage.removeItem("sched_token");
+          localStorage.removeItem("sched_name");
+        } catch (e) {}
+        $("pinInput").value = "";
+        showSignin();
+      }
+
+      /* ================= Main / sync status ================= */
+      function enterMain() {
+        showMain();
+        $("dateInput").value = todayNY();
+        refreshSyncStatus();
+      }
+
+      function refreshSyncStatus() {
+        rpc("sched_sync_status", { p_token: token }).then(function (info) {
+          if (!info || typeof info !== "object") { signOut(); return; }
+          syncInfo = info;
+          var line = $("syncLine"), banner = $("noDataBanner"), btn = $("searchBtn");
+          if (!info.last_sync_at || !info.job_count) {
+            line.innerHTML = "Schedule data: <strong>none yet</strong>";
+            banner.classList.add("show");
+            btn.disabled = true;
+          } else {
+            banner.classList.remove("show");
+            btn.disabled = false;
+            line.innerHTML = "Schedule data as of <strong>" + escapeHtml(fmtSyncTime(info.last_sync_at)) +
+              "</strong> · " + info.job_count + " jobs · covers " +
+              escapeHtml(prettyDate(info.window_from)) + " – " + escapeHtml(prettyDate(info.window_to));
+          }
+        }).catch(showFatal);
+      }
+
+      function escapeHtml(s) {
+        return String(s == null ? "" : s)
+          .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;");
+      }
+
+      /* ================= Engine ================= */
+      function isBlocking(job) {
+        var st = String(job.status || "").trim().toLowerCase();
+        return NON_BLOCKING.indexOf(st) === -1;
+      }
+      function overlaps(aStart, aEnd, bStart, bEnd) {
+        return aStart < bEnd && bStart < aEnd;
+      }
+
+      function runEngine(jobs, pool, lengthMin, earliestDate, clientTownRaw) {
+        var units = UNITS[pool];
+        var clientKey = normalizeTown(clientTownRaw);
+        var client = CENTROIDS[clientKey] || null;
+
+        /* Index blocking jobs: date -> tech -> [jobs] */
+        var byDateTech = {};
+        jobs.forEach(function (j) {
+          if (j.grp !== pool) return;
+          if (!isBlocking(j)) return;
+          var d = j.job_date;
+          if (!byDateTech[d]) byDateTech[d] = {};
+          if (!byDateTech[d][j.tech]) byDateTech[d][j.tech] = [];
+          byDateTech[d][j.tech].push(j);
+        });
+
+        function unitJobsOn(unit, dateStr) {
+          var out = [];
+          var dayMap = byDateTech[dateStr] || {};
+          unit.members.forEach(function (m) {
+            (dayMap[m] || []).forEach(function (j) { out.push(j); });
+          });
+          return out;
+        }
+
+        function earliestFreeSlot(unit, dateStr) {
+          var dayJobs = unitJobsOn(unit, dateStr);
+          for (var start = DAY_START; start + lengthMin <= DAY_END; start += 30) {
+            var end = start + lengthMin;
+            if (unit.noBefore10 && overlaps(start, end, JOSH_BLOCK_START, JOSH_BLOCK_END)) continue;
+            var free = true;
+            for (var i = 0; i < dayJobs.length; i++) {
+              if (overlaps(start, end, dayJobs[i].start_min, dayJobs[i].end_min)) { free = false; break; }
+            }
+            if (free) return start;
+          }
+          return null;
+        }
+
+        function nearestInfo(unit, dateStr) {
+          var dayJobs = unitJobsOn(unit, dateStr);
+          if (!dayJobs.length) return { dist: null, town: null, hasJobs: false };
+          if (!client) return { dist: null, town: null, hasJobs: true };
+          var best = null, bestTown = null;
+          dayJobs.forEach(function (j) {
+            var c = CENTROIDS[normalizeTown(j.town)];
+            if (!c) return;
+            var d = haversineMiles(client, c);
+            if (best === null || d < best) { best = d; bestTown = c.display; }
+          });
+          return { dist: best, town: bestTown, hasJobs: true };
+        }
+
+        /* 14 calendar days from earliest date, Saturdays and Sundays skipped */
+        var days = [];
+        for (var i = 0; i < 14; i++) {
+          var ds = addDays(earliestDate, i);
+          var dow = parseDateStr(ds).getUTCDay();
+          if (dow === 0 || dow === 6) continue; // Sunday / Saturday
+          days.push(ds);
+        }
+
+        var candidates = [];
+        var firstByUnit = {}; // unit name -> {date, start}
+        units.forEach(function (u) { firstByUnit[u.name] = null; });
+
+        days.forEach(function (ds) {
+          units.forEach(function (u) {
+            var start = earliestFreeSlot(u, ds);
+            if (start === null) return;
+            var ni = nearestInfo(u, ds);
+            candidates.push({
+              unit: u.name, date: ds, start: start,
+              dist: ni.dist, nearTown: ni.town, hasJobs: ni.hasJobs
+            });
+            if (!firstByUnit[u.name]) firstByUnit[u.name] = { date: ds, start: start };
+          });
+        });
+
+        candidates.sort(function (a, b) {
+          if (a.date !== b.date) return a.date < b.date ? -1 : 1;
+          var da = a.dist === null ? 999 : a.dist;
+          var db = b.dist === null ? 999 : b.dist;
+          if (da !== db) return da - db;
+          return a.start - b.start;
+        });
+
+        var allFirst = units.map(function (u) {
+          return { unit: u.name, first: firstByUnit[u.name] };
+        }).sort(function (a, b) {
+          if (a.first && b.first) {
+            if (a.first.date !== b.first.date) return a.first.date < b.first.date ? -1 : 1;
+            return a.first.start - b.first.start;
+          }
+          if (a.first) return -1;
+          if (b.first) return 1;
+          return 0;
+        });
+
+        return {
+          top: candidates.slice(0, 3),
+          allFirst: allFirst,
+          townKnown: !!client,
+          clientDisplay: client ? client.display : null
+        };
+      }
+
+      /* ================= Search ================= */
+      var searching = false;
+      function doSearch() {
+        if (searching) return;
+        var svc = SERVICES[$("serviceSelect").value];
+        var lengthMin = parseInt($("lengthSelect").value, 10);
+        var townRaw = $("townInput").value.trim();
+        var earliest = $("dateInput").value || todayNY();
+        var err = $("searchErr");
+        err.classList.remove("show");
+
+        searching = true;
+        var btn = $("searchBtn");
+        btn.disabled = true; btn.textContent = "Checking the schedule…";
+
+        rpc("sched_get_jobs", {
+          p_token: token,
+          p_from: earliest,
+          p_to: addDays(earliest, 21)
+        }).then(function (jobs) {
+          searching = false;
+          btn.disabled = false; btn.textContent = "Find top 3 openings";
+          if (!Array.isArray(jobs)) { signOut(); return; }
+          updateTownDatalist(jobs);
+          var result = runEngine(jobs, svc.pool, lengthMin, earliest, townRaw);
+          renderResults(result, svc, lengthMin, townRaw);
+        }).catch(function () {
+          searching = false;
+          btn.disabled = false; btn.textContent = "Find top 3 openings";
+          showFatal();
+        });
+      }
+
+      function updateTownDatalist(jobs) {
+        var seen = {}, names = [];
+        Object.keys(CENTROIDS).forEach(function (k) {
+          var d = CENTROIDS[k].display;
+          if (!seen[d]) { seen[d] = true; names.push(d); }
+        });
+        (jobs || []).forEach(function (j) {
+          if (j.town && !seen[j.town]) { seen[j.town] = true; names.push(j.town); }
+        });
+        names.sort();
+        var dl = $("townList");
+        dl.innerHTML = "";
+        names.forEach(function (n) {
+          var o = document.createElement("option");
+          o.value = n;
+          dl.appendChild(o);
+        });
+      }
+
+      function renderResults(result, svc, lengthMin, townRaw) {
+        $("results").classList.add("show");
+        $("resultsFor").textContent = svc.label + (townRaw ? " · " + townRaw : "");
+        $("rankNote").classList.toggle("show", !result.townKnown && result.top.length > 0);
+
+        var box = $("resultCards");
+        box.innerHTML = "";
+        if (!result.top.length) {
+          var none = document.createElement("div");
+          none.className = "none-msg";
+          none.textContent = "No openings found in the next 14 days for this service. Try a shorter job length or a later start date.";
+          box.appendChild(none);
+        }
+        result.top.forEach(function (c, idx) {
+          var card = document.createElement("div");
+          card.className = "result-card";
+          var why, whyNeutral = false;
+          if (c.dist !== null && c.dist < 0.05) {
+            why = "Already working in " + (result.clientDisplay || townRaw) + " that day";
+          } else if (c.dist !== null) {
+            why = "Nearest job that day is in " + c.nearTown + " (~" + Math.round(c.dist) + " mi)";
+          } else if (c.hasJobs) {
+            why = "Already booked elsewhere that day — distance unavailable";
+            whyNeutral = true;
+          } else {
+            why = "Nothing booked that day yet";
+            whyNeutral = true;
+          }
+          card.innerHTML =
+            '<div class="rank-badge">' + (idx + 1) + "</div>" +
+            '<div class="result-main">' +
+              '<div class="result-unit">' + escapeHtml(c.unit) + "</div>" +
+              '<div class="result-when">' + escapeHtml(prettyDate(c.date)) + "</div>" +
+              '<div class="result-start">Starts ' + fmtTime(c.start) + " · " + fmtLen(lengthMin) + "</div>" +
+              '<div class="result-why' + (whyNeutral ? " neutral" : "") + '">' + escapeHtml(why) + "</div>" +
+            "</div>";
+          box.appendChild(card);
+        });
+
+        var ul = $("allOpenList");
+        ul.innerHTML = "";
+        result.allFirst.forEach(function (row) {
+          var li = document.createElement("li");
+          if (row.first) {
+            li.innerHTML = "<strong>" + escapeHtml(row.unit) + '</strong><span class="t">' +
+              escapeHtml(prettyDate(row.first.date)) + " · " + fmtTime(row.first.start) + "</span>";
+          } else {
+            li.className = "none";
+            li.innerHTML = "<strong>" + escapeHtml(row.unit) + '</strong><span class="t">No opening in the next 14 days</span>';
+          }
+          ul.appendChild(li);
+        });
+
+        $("results").scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+
+      /* ================= Wiring ================= */
+      $("serviceSelect").addEventListener("change", function () {
+        $("lengthSelect").value = String(SERVICES[this.value].len);
+      });
+      $("signinBtn").addEventListener("click", doSignin);
+      $("pinInput").addEventListener("keydown", function (e) { if (e.key === "Enter") doSignin(); });
+      $("signOutBtn").addEventListener("click", signOut);
+      $("searchBtn").addEventListener("click", doSearch);
+
+      /* Seed the town datalist from the centroid table right away */
+      updateTownDatalist([]);
+
+      /* ================= Boot ================= */
+      (function boot() {
+        var storedToken = null, storedName = null;
+        try {
+          storedToken = localStorage.getItem("sched_token");
+          storedName = localStorage.getItem("sched_name");
+        } catch (e) {}
+        if (storedToken) {
+          token = storedToken; userName = storedName;
+          rpc("sched_sync_status", { p_token: token }).then(function (info) {
+            if (!info || typeof info !== "object") {
+              token = null;
+              try { localStorage.removeItem("sched_token"); localStorage.removeItem("sched_name"); } catch (e) {}
+              showSignin(); loadNames();
+              return;
+            }
+            showMain();
+            $("dateInput").value = todayNY();
+            syncInfo = info;
+            /* reuse the validation response to paint the sync line */
+            var line = $("syncLine"), banner = $("noDataBanner"), btn = $("searchBtn");
+            if (!info.last_sync_at || !info.job_count) {
+              line.innerHTML = "Schedule data: <strong>none yet</strong>";
+              banner.classList.add("show");
+              btn.disabled = true;
+            } else {
+              line.innerHTML = "Schedule data as of <strong>" + escapeHtml(fmtSyncTime(info.last_sync_at)) +
+                "</strong> · " + info.job_count + " jobs · covers " +
+                escapeHtml(prettyDate(info.window_from)) + " – " + escapeHtml(prettyDate(info.window_to));
+            }
+          }).catch(showFatal);
+        } else {
+          showSignin();
+          loadNames();
+        }
+      })();
+    </script>
+  <script>
+if ('serviceWorker' in navigator) { window.addEventListener('load', function(){ navigator.serviceWorker.register('./sw.js').catch(function(){}); }); }
+</script>
+</body>
+</html>
