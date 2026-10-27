@@ -716,6 +716,19 @@
         var units = UNITS[pool];
         var client = clientPoint || null;
 
+        /* Late-day rule: a 4:30 PM start (990) is only offered when the
+           client's location is within 5 miles of the office in Hawthorne,
+           NY (5 W. Cross St — Hawthorne centroid). Measured the same way
+           as every other distance here: straight-line miles from the
+           client point (exact picked address, or town centroid) to
+           Hawthorne. More than 5 miles away, the 4:30 PM slot is never
+           offered. */
+        var LATE_START_MIN = 990; // 4:30 PM
+        var officePoint = CENTROIDS[normalizeTown("Hawthorne")] || null;
+        var clientDistFromOffice = (client && officePoint)
+          ? haversineMiles(client, officePoint) : null;
+        var lateSlotBlocked = clientDistFromOffice === null || clientDistFromOffice > 5;
+
         /* Never offer a slot in the past: days before today yield nothing,
            and on today only start times strictly later than the current
            America/New_York time qualify. */
@@ -860,6 +873,7 @@
           var best = null;
           for (var start = DAY_START; start + lengthMin <= DAY_END; start += 30) {
             var end = start + lengthMin;
+            if (start >= LATE_START_MIN && lateSlotBlocked) continue;
             if (!slotFree(dayJobs, unit, dateStr, start, end)) continue;
             var fit = routeFit(dayReal, start, end);
             if (!fit || fit.nearDist === null || fit.nearDist > 10) continue;
@@ -893,6 +907,7 @@
           var best = null;
           for (var start = DAY_START; start + lengthMin <= DAY_END; start += 30) {
             var end = start + lengthMin;
+            if (start >= LATE_START_MIN && lateSlotBlocked) continue;
             if (!slotFree(myRows, unit, dateStr, start, end)) continue;
             var partnerBlocked = false;
             for (var i = 0; i < partnerRows.length; i++) {
