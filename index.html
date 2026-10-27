@@ -306,7 +306,7 @@
       <!-- Main view -->
       <section id="mainView" class="hidden">
         <h1>Schedule Checker</h1>
-        <p class="sub">Find the soonest, closest openings for a job — from the real Gorilla Desk schedule.</p>
+        <p class="sub">Find the soonest openings that fit each tech's route for the day — in GPS order, no back-and-forth driving.</p>
 
         <div class="sync-line" id="syncLine">Checking schedule data…</div>
         <div class="banner" id="noDataBanner">No schedule data yet — the first sync hasn't run. Check back shortly.</div>
@@ -708,9 +708,10 @@
       /* clientPoint is { lat, lon, display, isAddress } or null. When the
          staff picked a geocoded client address, its exact coordinates are
          the client point; otherwise the client town's centroid is used.
-         Every distance below — the 10-mile rule and the nearest-job
-         ranking — measures from that point to the town centroids of the
-         techs' jobs (Gorilla Desk data only carries town/ZIP). */
+         Every distance below measures from that point to the town
+         centroids of the techs' jobs (Gorilla Desk data only carries
+         town/ZIP), and is used to fit each opening into the tech's day
+         in GPS (route) order — see routeFit. */
       function runEngine(jobs, pool, lengthMin, clientPoint) {
         var units = UNITS[pool];
         var client = clientPoint || null;
@@ -787,47 +788,101 @@
           return dayMap[tech] || [];
         }
 
-        function earliestFreeSlot(unit, dateStr) {
+        function slotFree(dayJobs, unit, dateStr, start, end) {
+          if (dateStr === todayStr && start <= nowMin) return false; // slot already past
+          if (unit.noBefore10 && overlaps(start, end, JOSH_BLOCK_START, JOSH_BLOCK_END)) return false;
+          for (var i = 0; i < dayJobs.length; i++) {
+            if (overlaps(start, end, dayJobs[i].start_min, dayJobs[i].end_min)) return false;
+          }
+          return true;
+        }
+
+        function centroidOf(job) {
+          return CENTROIDS[normalizeTown(job.town)] || null;
+        }
+
+        /* GPS ORDER: a space only counts if the new job slots into the
+           tech's day in route order — immediately before or after the
+           jobs already around it — instead of sending the tech back and
+           forth across the area to reach it. The neighbours of a slot are
+           the real jobs directly before and after it in time (holds have
+           no location, so they block time but are never neighbours).
+           fit.detour is the extra driving the insertion adds to the day:
+           before→client→after minus before→after (with only one
+           neighbour, just the drive to or from that neighbour).
+           fit.nearDist is the distance to the closer neighbour. A slot
+           qualifies only when a neighbour job is within 10 miles of the
+           client. Returns null when there is no client point or the slot
+           touches no job with a known town. */
+        function routeFit(dayRealJobs, start, end) {
+          if (!client) return null;
+          var prev = null, next = null;
+          dayRealJobs.forEach(function (j) {
+            if (j.end_min <= start) {
+              if (!prev || j.end_min > prev.end_min) prev = j;
+            } else if (j.start_min >= end) {
+              if (!next || j.start_min < next.start_min) next = j;
+            }
+          });
+          var pc = prev ? centroidOf(prev) : null;
+          var nc = next ? centroidOf(next) : null;
+          if (prev && !pc) prev = null;
+          if (next && !nc) next = null;
+          if (!prev && !next) return null;
+          var dPC = prev ? haversineMiles(pc, client) : null;
+          var dCN = next ? haversineMiles(client, nc) : null;
+          var detour;
+          if (prev && next) {
+            detour = Math.max(0, dPC + dCN - haversineMiles(pc, nc));
+          } else {
+            detour = prev ? dPC : dCN;
+          }
+          var nearDist = dPC === null ? dCN : (dCN === null ? dPC : Math.min(dPC, dCN));
+          var nearTown = null;
+          if (prev && (dCN === null || dPC <= dCN)) nearTown = pc.display;
+          else if (next) nearTown = nc.display;
+          return {
+            detour: detour, nearDist: nearDist, nearTown: nearTown,
+            prevTown: prev ? pc.display : null,
+            nextTown: next ? nc.display : null
+          };
+        }
+
+        /* The best space for a unit on a day: among the free slots that
+           fit the route (a neighbouring job within 10 miles of the
+           client), the one that adds the least extra driving; ties go to
+           the earliest slot. A unit with no jobs that day has no route
+           to fit into, so it isn't offered. */
+        function bestRouteSlot(unit, dateStr) {
+          var dayReal = unitRealJobsOn(unit, dateStr);
+          if (!dayReal.length) return null;
           var dayJobs = unitJobsOn(unit, dateStr);
-          var isToday = dateStr === todayStr;
+          var best = null;
           for (var start = DAY_START; start + lengthMin <= DAY_END; start += 30) {
             var end = start + lengthMin;
-            if (isToday && start <= nowMin) continue; // slot already past
-            if (unit.noBefore10 && overlaps(start, end, JOSH_BLOCK_START, JOSH_BLOCK_END)) continue;
-            var free = true;
-            for (var i = 0; i < dayJobs.length; i++) {
-              if (overlaps(start, end, dayJobs[i].start_min, dayJobs[i].end_min)) { free = false; break; }
+            if (!slotFree(dayJobs, unit, dateStr, start, end)) continue;
+            var fit = routeFit(dayReal, start, end);
+            if (!fit || fit.nearDist === null || fit.nearDist > 10) continue;
+            if (!best || fit.detour < best.fit.detour - 1e-9) {
+              best = { start: start, fit: fit };
             }
-            if (free) return start;
           }
-          return null;
+          return best;
         }
 
-        function nearestFromJobs(dayJobs) {
-          if (!dayJobs.length) return { dist: null, town: null, hasJobs: false };
-          if (!client) return { dist: null, town: null, hasJobs: true };
-          var best = null, bestTown = null;
-          dayJobs.forEach(function (j) {
-            var c = CENTROIDS[normalizeTown(j.town)];
-            if (!c) return;
-            var d = haversineMiles(client, c);
-            if (best === null || d < best) { best = d; bestTown = c.display; }
-          });
-          return { dist: best, town: bestTown, hasJobs: true };
-        }
-
-        function nearestInfo(unit, dateStr) {
-          return nearestFromJobs(unitRealJobsOn(unit, dateStr));
-        }
-
-        /* Solo offer for one member of a team: the earliest slot where the
-           member is free BUT at least one teammate is blocked (booked job,
-           hold, or time off overlapping the slot) — i.e. a slot the team
-           itself can't take, where this member can go with another helper.
+        /* Solo offer for one member of a team: a slot where the member is
+           free BUT at least one teammate is blocked (booked job, hold, or
+           time off overlapping the slot) — i.e. a slot the team itself
+           can't take, where this member can go with another helper.
            Slots where the whole team is free are covered by the team offer
            and never duplicated as solo offers. The member's own jobs and
-           holds still block them exactly as usual. */
-        function earliestSoloSlot(unit, member, dateStr) {
+           holds still block them exactly as usual. Among the qualifying
+           slots, the space must also fit the member's own route in GPS
+           order (same rule as bestRouteSlot): the one adding the least
+           extra driving to the member's day wins, ties to the earliest. */
+        function bestSoloRouteSlot(unit, member, dateStr) {
+          var myReal = memberRealJobsOn(member, dateStr);
+          if (!myReal.length) return null;
           var myRows = memberRowsOn(member, dateStr);
           var partnerRows = [];
           unit.members.forEach(function (m) {
@@ -835,23 +890,22 @@
             memberRowsOn(m, dateStr).forEach(function (j) { partnerRows.push(j); });
           });
           if (!partnerRows.length) return null;
-          var isToday = dateStr === todayStr;
+          var best = null;
           for (var start = DAY_START; start + lengthMin <= DAY_END; start += 30) {
             var end = start + lengthMin;
-            if (isToday && start <= nowMin) continue; // slot already past
-            if (unit.noBefore10 && overlaps(start, end, JOSH_BLOCK_START, JOSH_BLOCK_END)) continue;
-            var i, blocked = false;
-            for (i = 0; i < myRows.length; i++) {
-              if (overlaps(start, end, myRows[i].start_min, myRows[i].end_min)) { blocked = true; break; }
-            }
-            if (blocked) continue;
+            if (!slotFree(myRows, unit, dateStr, start, end)) continue;
             var partnerBlocked = false;
-            for (i = 0; i < partnerRows.length; i++) {
+            for (var i = 0; i < partnerRows.length; i++) {
               if (overlaps(start, end, partnerRows[i].start_min, partnerRows[i].end_min)) { partnerBlocked = true; break; }
             }
-            if (partnerBlocked) return start;
+            if (!partnerBlocked) continue;
+            var fit = routeFit(myReal, start, end);
+            if (!fit || fit.nearDist === null || fit.nearDist > 10) continue;
+            if (!best || fit.detour < best.fit.detour - 1e-9) {
+              best = { start: start, fit: fit };
+            }
           }
-          return null;
+          return best;
         }
 
         /* Always search from right now: 14 calendar days starting today,
@@ -870,35 +924,34 @@
 
         days.forEach(function (ds) {
           units.forEach(function (u) {
-            var start = earliestFreeSlot(u, ds);
-            if (start !== null) {
-              var ni = nearestInfo(u, ds);
-              /* 10-mile rule: a unit is only offered when its nearest job that
-                 day is within 10 miles of the client (the picked address, or
-                 the town centroid when no address was picked). A unit with no
-                 jobs that day (or no measurable distance) doesn't qualify. */
-              if (ni.dist !== null && ni.dist <= 10) {
-                candidates.push({
-                  unit: u.name, date: ds, start: start,
-                  dist: ni.dist, nearTown: ni.town, hasJobs: ni.hasJobs,
-                  soloNote: null
-                });
-              }
+            /* Team offer: the best route-fitting space in the unit's day
+               (see bestRouteSlot) — in GPS order, never a space that sends
+               the team back and forth across the area. */
+            var best = bestRouteSlot(u, ds);
+            if (best) {
+              candidates.push({
+                unit: u.name, date: ds, start: best.start,
+                dist: best.fit.nearDist, nearTown: best.fit.nearTown, hasJobs: true,
+                detour: best.fit.detour,
+                prevTown: best.fit.prevTown, nextTown: best.fit.nextTown,
+                soloNote: null
+              });
             }
             /* Solo offers: if a teammate is unavailable (booked, hold, or
                time off), the other member can be offered on their own —
-               they'll have another helper. Distance is measured from the
-               member's own jobs that day, same 10-mile rule. */
+               they'll have another helper. The space must fit the member's
+               own route in GPS order, same 10-mile neighbour rule,
+               measured from the member's own jobs that day. */
             if (u.members.length > 1) {
               u.members.forEach(function (m) {
-                var sStart = earliestSoloSlot(u, m, ds);
-                if (sStart === null) return;
-                var sni = nearestFromJobs(memberRealJobsOn(m, ds));
-                if (sni.dist === null || sni.dist > 10) return;
+                var sBest = bestSoloRouteSlot(u, m, ds);
+                if (!sBest) return;
                 var others = u.members.filter(function (x) { return x !== m; });
                 candidates.push({
-                  unit: m, date: ds, start: sStart,
-                  dist: sni.dist, nearTown: sni.town, hasJobs: sni.hasJobs,
+                  unit: m, date: ds, start: sBest.start,
+                  dist: sBest.fit.nearDist, nearTown: sBest.fit.nearTown, hasJobs: true,
+                  detour: sBest.fit.detour,
+                  prevTown: sBest.fit.prevTown, nextTown: sBest.fit.nextTown,
                   soloNote: others.join(" & ") + (others.length > 1 ? " are" : " is") +
                     " unavailable — " + m + " can be offered with another helper"
                 });
@@ -907,8 +960,14 @@
           });
         });
 
+        /* Rank: soonest day first; within a day, the opening that adds the
+           least extra driving to the tech's route (best GPS order) first,
+           then closest neighbour, then earliest start. */
         candidates.sort(function (a, b) {
           if (a.date !== b.date) return a.date < b.date ? -1 : 1;
+          var ta = a.detour === null ? 999 : a.detour;
+          var tb = b.detour === null ? 999 : b.detour;
+          if (ta !== tb) return ta - tb;
           var da = a.dist === null ? 999 : a.dist;
           var db = b.dist === null ? 999 : b.dist;
           if (da !== db) return da - db;
@@ -1093,10 +1152,10 @@
           var none = document.createElement("div");
           none.className = "none-msg";
           none.textContent = result.clientIsAddress
-            ? "No openings within 10 miles of the client's address in the next 14 days. Openings are only offered when a tech is already working within 10 miles of the client that day."
+            ? "No openings that fit a tech's route near the client's address in the next 14 days. Openings are only offered when the job slots into a tech's day in GPS order — right before or after a job within 10 miles — so nobody is sent back and forth."
             : (townRaw
-              ? "No openings within 10 miles of " + townRaw + " in the next 14 days. Openings are only offered when a tech is already working within 10 miles of the client that day."
-              : "No openings found in the next 14 days for this service. Enter the client's town — openings are only offered when a tech is already working within 10 miles of the client that day.");
+              ? "No openings that fit a tech's route near " + townRaw + " in the next 14 days. Openings are only offered when the job slots into a tech's day in GPS order — right before or after a job within 10 miles — so nobody is sent back and forth."
+              : "No openings found in the next 14 days for this service. Enter the client's town — openings are only offered when the job fits into a tech's route for the day, right before or after a job within 10 miles.");
           box.appendChild(none);
         }
         result.top.forEach(function (c, idx) {
@@ -1107,6 +1166,16 @@
             why = result.clientIsAddress
               ? "Already working in " + c.nearTown + " that day — the client's town"
               : "Already working in " + (result.clientDisplay || townRaw) + " that day";
+          } else if (c.prevTown && c.nextTown && c.prevTown !== c.nextTown) {
+            why = "In GPS order — fits between the jobs in " + c.prevTown + " and " + c.nextTown +
+              (c.detour < 0.5 ? ", no extra back-and-forth" : ", adds ~" + Math.round(c.detour) + " mi of driving");
+          } else if (c.prevTown && c.nextTown) {
+            why = "In GPS order — between two jobs in " + c.prevTown + " that day" +
+              (c.detour < 0.5 ? ", no extra back-and-forth" : ", adds ~" + Math.round(c.detour) + " mi of driving");
+          } else if (c.prevTown) {
+            why = "In GPS order — right after the job in " + c.prevTown + " (~" + Math.round(c.dist) + " mi), no trip back across the area";
+          } else if (c.nextTown) {
+            why = "In GPS order — right before the job in " + c.nextTown + " (~" + Math.round(c.dist) + " mi), no trip back across the area";
           } else if (c.dist !== null) {
             why = result.clientIsAddress
               ? "Nearest job that day is in " + c.nearTown + ", ~" + Math.round(c.dist) + " mi from the client's address"
