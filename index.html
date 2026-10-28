@@ -401,7 +401,7 @@
       var SERVICES = {
         "wildlife-inspection": { label: "Inspection", pool: "wildlife", len: 55 },
         "trapping":            { label: "Trapping",            pool: "wildlife", len: 55 },
-        "exclusion":           { label: "Exclusion",           pool: "wildlife", len: 55 },
+        "exclusion":           { label: "Exclusion",           pool: "wildlife", len: 55, minStart: 750 },
         "pest-service":        { label: "Pest Control Service", pool: "pest",    len: 55 }
       };
 
@@ -712,9 +712,13 @@
          centroids of the techs' jobs (Gorilla Desk data only carries
          town/ZIP), and is used to fit each opening into the tech's day
          in GPS (route) order — see routeFit. */
-      function runEngine(jobs, pool, lengthMin, clientPoint) {
+      function runEngine(jobs, pool, lengthMin, clientPoint, minStartMin) {
         var units = UNITS[pool];
         var client = clientPoint || null;
+        /* Service earliest-start rule: Exclusion jobs are only offered at
+           12:30 PM (750) or later. Other services search from DAY_START. */
+        var earliestStart = (typeof minStartMin === "number" && minStartMin > DAY_START)
+          ? minStartMin : DAY_START;
 
         /* Late-day rule: a 4:30 PM start (990) is only offered when the
            client's location is within 5 miles of the office in Hawthorne,
@@ -871,7 +875,7 @@
           if (!dayReal.length) return null;
           var dayJobs = unitJobsOn(unit, dateStr);
           var best = null;
-          for (var start = DAY_START; start + lengthMin <= DAY_END; start += 30) {
+          for (var start = earliestStart; start + lengthMin <= DAY_END; start += 30) {
             var end = start + lengthMin;
             if (start >= LATE_START_MIN && lateSlotBlocked) continue;
             if (!slotFree(dayJobs, unit, dateStr, start, end)) continue;
@@ -905,7 +909,7 @@
           });
           if (!partnerRows.length) return null;
           var best = null;
-          for (var start = DAY_START; start + lengthMin <= DAY_END; start += 30) {
+          for (var start = earliestStart; start + lengthMin <= DAY_END; start += 30) {
             var end = start + lengthMin;
             if (start >= LATE_START_MIN && lateSlotBlocked) continue;
             if (!slotFree(myRows, unit, dateStr, start, end)) continue;
@@ -1127,7 +1131,7 @@
           btn.disabled = false; btn.textContent = "Find top 3 openings";
           if (!Array.isArray(jobs)) { signOut(); return; }
           updateTownDatalist(jobs);
-          var result = runEngine(jobs, svc.pool, lengthMin, clientPoint);
+          var result = runEngine(jobs, svc.pool, lengthMin, clientPoint, svc.minStart);
           renderResults(result, svc, lengthMin, townRaw);
         }).catch(function () {
           searching = false;
@@ -1171,6 +1175,9 @@
             : (townRaw
               ? "No openings that fit a tech's route near " + townRaw + " in the next 14 days. Openings are only offered when the job slots into a tech's day in GPS order — right before or after a job within 10 miles — so nobody is sent back and forth."
               : "No openings found in the next 14 days for this service. Enter the client's town — openings are only offered when the job fits into a tech's route for the day, right before or after a job within 10 miles.");
+          if (svc.minStart) {
+            none.textContent += " Exclusion jobs are only offered at 12:30 PM or later.";
+          }
           box.appendChild(none);
         }
         result.top.forEach(function (c, idx) {
