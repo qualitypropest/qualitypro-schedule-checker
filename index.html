@@ -371,7 +371,7 @@
           <div id="resultCards"></div>
         </div>
 
-        <p class="footer-note">Availability comes from the synced Gorilla Desk schedule (see the “as of” time above). This tool does not book the job — book in Gorilla Desk as usual.</p>
+        <p class="footer-note">Availability comes from the synced Gorilla Desk schedule (see the “as of” time above). This tool does not book the job — book in Gorilla Desk as usual. A 4:30 PM visit is never added to a schedule whose last appointment that day is at 4:00 PM somewhere other than Hawthorne.</p>
       </section>
     </div>
 
@@ -733,6 +733,30 @@
           ? haversineMiles(client, officePoint) : null;
         var lateSlotBlocked = clientDistFromOffice === null || clientDistFromOffice > 5;
 
+        /* End-of-day rule: never put a 4:30 PM visit on a schedule
+           whose last appointment of the day is at 4:00 PM somewhere
+           OTHER than Hawthorne. If that 4:00 PM job is away from
+           Hawthorne, no late visit gets tacked on after it — even when
+           that job ends early enough that a 4:30 PM start would
+           otherwise fit. A 4:00 PM last job in Hawthorne does NOT block
+           a 4:30 PM start under this rule. Checked per unit (and per
+           member for solo offers) from the day's real jobs; holds have
+           no location and never count. */
+        var LAST_JOB_START = 960; // 4:00 PM
+        function lastJobBlocksLate(dayRealJobs) {
+          var last = null;
+          dayRealJobs.forEach(function (j) {
+            if (!last || j.end_min > last.end_min ||
+                (j.end_min === last.end_min && j.start_min > last.start_min)) {
+              last = j;
+            }
+          });
+          if (!last || Number(last.start_min) !== LAST_JOB_START) return false;
+          var t = normalizeTown(last.town);
+          var isHawthorne = t === "hawthorne" || t.indexOf("hawthorne ") === 0 || t.indexOf("hawthorne,") === 0;
+          return !isHawthorne;
+        }
+
         /* Never offer a slot in the past: days before today yield nothing,
            and on today only start times strictly later than the current
            America/New_York time qualify. */
@@ -874,10 +898,11 @@
           var dayReal = unitRealJobsOn(unit, dateStr);
           if (!dayReal.length) return null;
           var dayJobs = unitJobsOn(unit, dateStr);
+          var dayLateBlocked = lateSlotBlocked || lastJobBlocksLate(dayReal);
           var best = null;
           for (var start = earliestStart; start + lengthMin <= DAY_END; start += 30) {
             var end = start + lengthMin;
-            if (start >= LATE_START_MIN && lateSlotBlocked) continue;
+            if (start >= LATE_START_MIN && dayLateBlocked) continue;
             if (!slotFree(dayJobs, unit, dateStr, start, end)) continue;
             var fit = routeFit(dayReal, start, end);
             if (!fit || fit.nearDist === null || fit.nearDist > 10) continue;
@@ -908,10 +933,11 @@
             memberRowsOn(m, dateStr).forEach(function (j) { partnerRows.push(j); });
           });
           if (!partnerRows.length) return null;
+          var memberLateBlocked = lateSlotBlocked || lastJobBlocksLate(myReal);
           var best = null;
           for (var start = earliestStart; start + lengthMin <= DAY_END; start += 30) {
             var end = start + lengthMin;
-            if (start >= LATE_START_MIN && lateSlotBlocked) continue;
+            if (start >= LATE_START_MIN && memberLateBlocked) continue;
             if (!slotFree(myRows, unit, dateStr, start, end)) continue;
             var partnerBlocked = false;
             for (var i = 0; i < partnerRows.length; i++) {
